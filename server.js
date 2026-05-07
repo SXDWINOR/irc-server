@@ -33,10 +33,10 @@ wss.on('connection', ws => {
     minClientVersion: 1,
   }));
 
-  ws.on('message', data => {
+ws.on('message', data => {
     let msg;
-    try { msg = decode(data); } catch (e) { return; }
-    if (msg.api_key !== 'LynxWave_secret_key_1488') return;
+    try { msg = decode(data); } catch (e) { console.log('decode error:', e.message); return; }
+    console.log('received:', msg.type, JSON.stringify(msg).slice(0, 200));
 
     switch (msg.type) {
       case 'register':

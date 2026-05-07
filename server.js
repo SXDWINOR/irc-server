@@ -1,12 +1,20 @@
+const http = require('http');
 const { WebSocketServer } = require('ws');
+
 const PORT = process.env.PORT || 8080;
-const wss = new WebSocketServer({ port: PORT });
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('IRC server is running');
+});
+
+const wss = new WebSocketServer({ server });
 
 const xor = buf => Buffer.from(buf).map(b => b ^ 0x14);
 const encode = obj => xor(Buffer.from(JSON.stringify(obj), 'utf8'));
 const decode = buf => JSON.parse(xor(buf).toString('utf8'));
 
-const clients = new Map(); // ws -> { username, nickname }
+const clients = new Map();
 
 function broadcast(obj) {
   const payload = encode(obj);
@@ -48,7 +56,6 @@ wss.on('connection', ws => {
         }));
         break;
       }
-
       case 'text': {
         const session = clients.get(ws);
         const author = (session && session.nickname) || msg.author || 'guest';
@@ -64,11 +71,8 @@ wss.on('connection', ws => {
         });
         break;
       }
-
-      case 'presence': {
-        // heartbeat — игнорируем
+      case 'presence':
         break;
-      }
     }
   });
 
@@ -78,4 +82,6 @@ wss.on('connection', ws => {
   });
 });
 
-console.log('IRC server listening on port', PORT);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('IRC server listening on port', PORT);
+});

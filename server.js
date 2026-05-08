@@ -43,25 +43,33 @@ wss.on('connection', ws => {
     let type = msg.type;
     if (!type && msg.message) type = 'text';
 
-    switch (type) {
-      case 'register':
-      case 'login': {
-        const username = String(msg.username || '').trim();
-        if (!username) return;
-        clients.set(ws, { username, nickname: username });
-        ws.send(encode({
-          type: 'login_success',
-          message: type === 'register' ? 'Регистрация успешна' : 'Вход выполнен успешно',
-          user: {
-            username,
-            nickname: username,
-            isModerator: false,
-            isAdmin: false,
-          },
-        }));
-        console.log('login:', username);
-        break;
-      }
+case 'register':
+case 'login': {
+  const username = String(msg.username || '').trim();
+  if (!username) {
+    console.log('empty username, ignored');
+    return;
+  }
+  clients.set(ws, { username, nickname: username });
+  const reply = {
+    type: 'login_success',
+    message: type === 'register' ? 'Регистрация успешна' : 'Вход выполнен успешно',
+    user: {
+      username,
+      nickname: username,
+      isModerator: false,
+      isAdmin: false,
+    },
+  };
+  try {
+    const encoded = encode(reply);
+    ws.send(encoded);
+    console.log('SENT login_success for', username, 'bytes:', encoded.length, 'state:', ws.readyState);
+  } catch (e) {
+    console.log('SEND ERROR:', e.message);
+  }
+  break;
+}
       case 'text': {
         const session = clients.get(ws);
         const author = (session && session.nickname) || msg.author || 'guest';

@@ -24,7 +24,10 @@ function broadcast(obj) {
 
 wss.on('connection', ws => {
   clients.set(ws, null);
+  ws.isAlive = true;
   console.log('connected, total:', clients.size);
+
+  ws.on('pong', () => { ws.isAlive = true; });
 
   ws.send(encode({
     type: 'version_info',
@@ -34,28 +37,29 @@ wss.on('connection', ws => {
 
   ws.on('message', data => {
     let msg;
-    try { msg = decode(data); } catch (e) { console.log('decode err'); return; }
-    if (msg.api_key !== 'LynxWave_secret_key_1488') { console.log('bad api_key'); return; }
-    console.log('received:', msg.type, JSON.stringify(msg).slice(0, 200));
+    try { msg = decode(data); } catch (e) { console.log('decode err:', e.message); return; }
+    if (msg.api_key !== 'LynxWave_secret_key_1488') return;
 
-    switch (msg.type) {
+    let type = msg.type;
+    if (!type && msg.message) type = 'text';
+
+    switch (type) {
       case 'register':
       case 'login': {
         const username = String(msg.username || '').trim();
-        if (!username) { console.log('empty username'); return; }
+        if (!username) return;
         clients.set(ws, { username, nickname: username });
-        const reply = {
+        ws.send(encode({
           type: 'login_success',
-          message: msg.type === 'register' ? 'Регистрация успешна' : 'Вход выполнен успешно',
+          message: type === 'register' ? 'Регистрация успешна' : 'Вход выполнен успешно',
           user: {
             username,
             nickname: username,
             isModerator: false,
             isAdmin: false,
           },
-        };
-        ws.send(encode(reply));
-        console.log('sent login_success for', username);
+        }));
+        console.log('login:', username);
         break;
       }
       case 'text': {
@@ -63,23 +67,21 @@ wss.on('connection', ws => {
         const author = (session && session.nickname) || msg.author || 'guest';
         const message = String(msg.message || '');
         if (!message) return;
-        const out = {
+        broadcast({
           type: 'text',
           message,
           author,
           client: 'LynxWave',
           prefix: msg.prefix || 'Default',
-          server: 'my-server',
-        };
-        broadcast(out);
-        console.log('broadcasted text from', author, '->', message.slice(0, 60));
+          server: msg.server || 'my-server',
+        });
+        console.log('msg:', author, '->', message.slice(0, 60));
         break;
       }
       case 'presence':
-        // heartbeat — игнорируем тихо
         break;
       default:
-        console.log('unhandled type:', msg.type);
+        console.log('unhandled type:', type);
     }
   });
 
@@ -87,7 +89,27 @@ wss.on('connection', ws => {
     clients.delete(ws);
     console.log('disconnected, total:', clients.size);
   });
+
+  ws.on('error', err => {
+    console.log('ws error:', err.message);
+  });
 });
+
+// Heartbeat: каждые 30 секунд пингуем всех клиентов
+const heartbeat = setInterval(() => {
+  for (const ws of clients.keys()) {
+    if (ws.isAlive === false) {
+      console.log('terminating dead connection');
+      clients.delete(ws);
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, 30_000);
+
+wss.on('close', () => clearInterval(heartbeat));
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('IRC server listening on port', PORT);

@@ -3,7 +3,7 @@ const { WebSocketServer } = require('ws');
 const PORT = process.env.PORT || 8080;
 
 const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.writeHead(200);
   res.end('IRC server is running');
 });
 
@@ -29,68 +29,48 @@ wss.on('connection', ws => {
 
   ws.on('pong', () => { ws.isAlive = true; });
 
-  ws.send(encode({
-    type: 'version_info',
-    serverVersion: 2,
-    minClientVersion: 1,
-  }));
+  ws.send(encode({ type: 'version_info', serverVersion: 2, minClientVersion: 1 }));
 
   ws.on('message', data => {
     let msg;
-    try { msg = decode(data); } catch (e) { console.log('decode err:', e.message); return; }
+    try { msg = decode(data); } catch (e) { return; }
     if (msg.api_key !== 'LynxWave_secret_key_1488') return;
 
     let type = msg.type;
     if (!type && msg.message) type = 'text';
 
-case 'register':
-case 'login': {
-  const username = String(msg.username || '').trim();
-  if (!username) {
-    console.log('empty username, ignored');
-    return;
-  }
-  clients.set(ws, { username, nickname: username });
-  const reply = {
-    type: 'login_success',
-    message: type === 'register' ? 'Регистрация успешна' : 'Вход выполнен успешно',
-    user: {
-      username,
-      nickname: username,
-      isModerator: false,
-      isAdmin: false,
-    },
-  };
-  try {
-    const encoded = encode(reply);
-    ws.send(encoded);
-    console.log('SENT login_success for', username, 'bytes:', encoded.length, 'state:', ws.readyState);
-  } catch (e) {
-    console.log('SEND ERROR:', e.message);
-  }
-  break;
-}
-      case 'text': {
-        const session = clients.get(ws);
-        const author = (session && session.nickname) || msg.author || 'guest';
-        const message = String(msg.message || '');
-        if (!message) return;
-        broadcast({
-          type: 'text',
-          message,
-          author,
-          client: 'LynxWave',
-          prefix: msg.prefix || 'Default',
-          server: msg.server || 'my-server',
-        });
-        console.log('msg:', author, '->', message.slice(0, 60));
-        break;
-      }
-      case 'presence':
-        break;
-      default:
-        console.log('unhandled type:', type);
+    if (type === 'register' || type === 'login') {
+      const username = String(msg.username || '').trim();
+      if (!username) return;
+      clients.set(ws, { username, nickname: username });
+      ws.send(encode({
+        type: 'login_success',
+        message: type === 'register' ? 'Регистрация успешна' : 'Вход выполнен успешно',
+        user: { username, nickname: username, isModerator: false, isAdmin: false }
+      }));
+      console.log('SENT login_success for', username);
+      return;
     }
+
+    if (type === 'text') {
+      const session = clients.get(ws);
+      const author = (session && session.nickname) || msg.author || 'guest';
+      const message = String(msg.message || '');
+      if (!message) return;
+      broadcast({
+        type: 'text',
+        message,
+        author,
+        client: 'LynxWave',
+        prefix: msg.prefix || 'Default',
+        server: msg.server || 'my-server'
+      });
+      console.log('msg:', author, '->', message.slice(0, 60));
+      return;
+    }
+
+    if (type === 'presence') return;
+    console.log('unhandled type:', type);
   });
 
   ws.on('close', () => {
@@ -98,16 +78,12 @@ case 'login': {
     console.log('disconnected, total:', clients.size);
   });
 
-  ws.on('error', err => {
-    console.log('ws error:', err.message);
-  });
+  ws.on('error', err => console.log('ws error:', err.message));
 });
 
-// Heartbeat: каждые 30 секунд пингуем всех клиентов
-const heartbeat = setInterval(() => {
+setInterval(() => {
   for (const ws of clients.keys()) {
     if (ws.isAlive === false) {
-      console.log('terminating dead connection');
       clients.delete(ws);
       ws.terminate();
       continue;
@@ -115,9 +91,7 @@ const heartbeat = setInterval(() => {
     ws.isAlive = false;
     ws.ping();
   }
-}, 30_000);
-
-wss.on('close', () => clearInterval(heartbeat));
+}, 30000);
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('IRC server listening on port', PORT);
